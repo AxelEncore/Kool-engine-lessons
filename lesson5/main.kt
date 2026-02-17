@@ -1,6 +1,20 @@
 package lesson5
 
-import de.fabmax.kool.modules.ui2.*
+import de.fabmax.kool.KoolApplication   // Запускает Kool-приложение
+import de.fabmax.kool.addScene          // функция - добавить сцену (UI, игровой мир и тд)
+
+import de.fabmax.kool.math.Vec3f        // 3D - вектор (x,y,z)
+import de.fabmax.kool.math.deg          // deg - превращение числа в градусы
+import de.fabmax.kool.scene.*           // Сцена, камера, источники света и тд
+
+import de.fabmax.kool.modules.ksl.KslPbrShader  // готовый PBR Shader - материал
+import de.fabmax.kool.util.Color        // Цветовая палитра
+import de.fabmax.kool.util.Time         // Время deltaT - сколько прошло секунд между двумя кадрами
+
+import de.fabmax.kool.pipeline.ClearColorLoad // Режим говорящий не очищать экран от элементов (нужен для UI)
+
+import de.fabmax.kool.modules.ui2.*     // импорт всех компонентов интерфейса, вроде text, button, Row....
+
 import java.io.File
 
 enum class ItemType{
@@ -366,24 +380,242 @@ fun removeItem(
     itemId: String,
     count: Int
 ): Pair<List<ItemStack?>, Boolean>{
-    // 1 новые слоты после удалчения 2 значение получилось ли удалить все
-    // - Создать новый список, и создать переменную счетчик которая по умолчанию = count
-    // перебераете все слоты
-        // находите слот по индексу
-        // проверяете на id предмета и что чисто предметов, которые надо удалить > 0
-            // считаем манимальное от нужного удаления и числа в стаке
-            // считаем сколько осталось в стаке после удаления
-            // и отнимаем от счетчика отстаток (need)
-            // в новый список слотов[по индексу] кладем с проверкой:
-            // если остаток в слоте <= 0 то положить null
-            // В любом другом случае положить ItemStack(предмет, остаток в слоте)
-    // Если в итоге need == 0 то сохранить в переменную success true или false
-    // Вернуть пару значений с новыми слотами и успехом или провалом
+    var need = count
+    val newSlots = slots.toMutableList()
+
+    for (i in newSlots.indices){
+        val s = newSlots[i] ?: continue
+        if (s.item.id == itemId && need > 0){
+            val take = minOf(need, s.count)
+            val leftInStack = s.count - take
+            need -= take
+
+            newSlots[i] = if (leftInStack <= 0) null else ItemStack(s.item, leftInStack)
+        }
+    }
+
+    val success = (need == 0)
+    return Pair(newSlots, success)
 }
 
+// ДИАЛОГОВАЯ ЦЕПОЧКА
+data class DialogueOption(
+    val id: String,
+    val text: String
+)
+
+data class DialogueView(
+    val text: String,
+    val options: List<DialogueOption>
+)
+
+class Npc(
+    val id: String,
+    val name: String
+){
+    fun dialogueFor(state: QuestState): DialogueView{
+        // Метод в котором нпс говорит разные фразы в зависимости от состояния квеста
+
+        return when(state){
+            QuestState.START -> DialogueView(
+                "[$name] Привет! Подходи, перетрем о травах",
+                listOf(
+                    DialogueOption("talk", " Поговорить")
+                )
+            )
+
+            QuestState.OFFERED -> DialogueView(
+                "[$name] Мне нужна трава, поможешь?",
+                listOf(
+                    DialogueOption("help", "Помочь(принести траву)"),
+                    DialogueOption("threat", "Угрожать(требовать золото)")
+                )
+            )
+
+            QuestState.ACCEPTED_HELP -> DialogueView(
+                "[$name] Отлично, буду ждать тебя здесь",
+                listOf(
+                    DialogueOption("collect_herb", "Собрать траву (симуляция, все совпадения лишь ошибка, ничего личного"),
+                    DialogueOption("talk", "Поговорить еше раз")
+                )
+            )
+
+            QuestState.HERB_COLLECTED -> DialogueView(
+                "[$name] Ты принес траву? ДАЙ ЕЕ МНЕ",
+                listOf(
+                    DialogueOption("give_herb", "Отдать 1 траву")
+                )
+            )
+
+            QuestState.ACCEPTED_THREAT -> DialogueView(
+                "[$name] Ты уверен мабой?",
+                listOf(
+                    DialogueOption("threat_confirm", "Да, гони золото")
+                )
+            )
+
+            QuestState.GOOD_END -> DialogueView(
+                "[$name] Хорош! Знал что можно на тебя положиться, держи золото",
+                emptyList()
+                // Больше вариантов выбора нет
+            )
+            QuestState.EVIL_END -> DialogueView(
+                "[$name] Ладно, забирай золото, но я тебя запомнил, братки подъедут",
+                emptyList()
+            )
+        }
+    }
+}
+
+fun main() = KoolApplication{
+
+    val game = GameState()
+    val bus = EventBus()
+    val quests = QuestSystem(bus)
+    val saves = SaveSystem(bus, game, quests)
+
+    val npc = Npc("alchemist", "Alchemist")
+
+    bus.subscribe { e ->
+        val line = when(e){
+            is QuestStateChanged -> "Состояние квеста ${e.questId} изменено -> ${e.newState}"
+            is PlayerProgressSaved -> "Сохранился прогресс ${e.questId} игрока ${e.playerId} в состоянии ${e.stateName}"
+            is TalkedNpc -> "Поговорил с Npc: ${e.npcId}"
+            is ChoiceSelected -> "Выбран вариант: ${e.choiceId}"
+            is ItemCollected -> "Получен предмет: ${e.itemId} x${e.count}"
+            is ItemGivenToNpc -> "Предмет ${e.itemId} x${e.count} передан ${e.npcId}"
+        }
+        pushLog(game, "[${e.playerId}] $line")
+    }
+
+    addScene {
+        defaultOrbitCamera()
+
+        addColorMesh {
+            generate { cube { colored() } }
+            shader = KslPbrShader {
+                color { vertexColor() }
+                metallic(0.7f)
+                roughness(0.4f)
+            }
+            onUpdate {
+                transform.rotate(45f.deg * Time.deltaT, Vec3f.X_AXIS)
+            }
+        }
+
+        lighting.singleDirectionalLight {
+            setup(Vec3f(-1f, -1f, -1f))
+            setColor(Color.WHITE, 5f)
+        }
+    }
 
 
+    addScene {
+        setupUiScene(ClearColorLoad)
 
+        addPanelSurface {
+            modifier
+                .align(AlignmentX.Start, AlignmentY.Top)
+                .margin(16.dp)
+                .padding(12.dp)
+                .background(RoundRectBackground(Color(0f,0f,0f, 0.6f), 14.dp))
+
+            Column {
+                // --------- СТАТЫ -----------
+                Text("Игрок ${game.playerId.use()}"){}
+                Text("HP ${game.hp.use()}"){}
+
+                modifier.margin(bottom = sizes.gap)
+
+                // --------- КВЕСТОВЫЕ СОСТОЯНИЯ -----------
+                val state = quests.stateByPlayer.use()[game.playerId.use()] ?: QuestState.START
+                Text("Состояние квеста: ${state.name}"){}
+
+                modifier.margin(bottom = sizes.gap)
+
+                // --------- Диалог NPC -----------
+                val view = npc.dialogueFor(state)
+
+                Text("${npc.name}"){}
+                Text(view.text){}
+
+                modifier.margin(bottom = sizes.gap)
+
+                // --------- Кнопки выбора -----------
+                Row {
+                    for (opt in view.options){
+                        Button(opt.text){
+                            modifier
+                                .margin(end = 8.dp)
+                                .onClick{
+                                    val pid = game.playerId.value
+
+                                    // Специальная логика для кнопок
+                                    when(opt.id){
+                                        "talk" -> {
+                                            bus.publish(TalkedNpc(pid, npc.id))
+                                        }
+
+                                        "collected_herb" -> {
+                                            val (updated, left) = addItem(game.inventory.value, HERB, 1)
+                                            game.inventory.value = updated
+
+                                            bus.publish(ItemCollected(pid, HERB.id, 1))
+
+                                            if (left > 0) game.gold.value += left
+                                        }
+
+                                        "give_herb" -> {
+                                            val (updated, succes) = removeItem(game.inventory.value, HERB.id, 1)
+                                            game.inventory.value = updated
+
+                                            if (succes){
+                                                bus.publish(ItemGivenToNpc(pid, npc.id, HERB.id, 1))
+
+                                                // Награда за хорошую концовку
+                                                val (inv2, left) = addItem(game.inventory.value, HEAL_POTION, 6)
+                                                game.inventory.value = inv2
+                                                if (left > 0) game.gold.value += left
+                                            }else{
+                                                pushLog(game, "[$pid] Нет травы, чтобы отдать")
+                                            }
+                                        }
+
+                                        "threat" -> {
+                                            bus.publish(ChoiceSelected(pid, npc.id, "threat"))
+                                        }
+                                        "help" -> {
+                                            bus.publish(ChoiceSelected(pid, npc.id, "help"))
+                                        }
+
+                                        "threaten_confirm" -> {
+                                            bus.publish(ChoiceSelected(pid, npc.id, "threaten_confirm"))
+
+                                            game.gold.value += 10
+                                        }
+
+                                        else -> {
+                                            bus.publish(ChoiceSelected(pid, npc.id, opt.id))
+                                        }
+                                    }
+                                }
+                        }
+                    }
+                }
+                // --------- ПРОСТАЯ ВИЗУАЛИЗАЦИЯ ИНВЕНТАРЯ -----------
+                Text("Инвентарь"){}
+                modifier.margin(bottom = sizes.gap)
+
+                val inv = game.inventory.use()
+                for (i in inv.indices){
+                    val s = inv[i]
+                    val text = if (s == null) "[${i + 1}] (пуст)" else "[${i + 1}] ${s.item.name} x${s.count}"
+                    Text(text) {modifier.font(sizes.smallText)}
+                }
+            }
+        }
+    }
+}
 
 
 
