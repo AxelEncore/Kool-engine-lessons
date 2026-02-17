@@ -150,21 +150,32 @@ enum class QuestState{
     EVIL_END
 }
 
-// StateGraph - нынешнее состояние + событие -> новое состояние
-// ЗДЕСЬ:
-// S - Сокращение State (состояние)
-// E - Сокращение Event (событие)
-class StateGraph<S:Any, E: Any>(
+class StateGraph<S: Any, E: Any>(
     private val initial: S
-){
-    // Карта переходов (transitions)
-    // Из состояния S -> (тип события -> функция, которая вычисляет новое состояние
-    private val transitions = mutableMapOf<S, MutableMap<Class<out E>, (E) -> S>>()
+    // S и E - обобщенные тип данных (generics)
+    // S = State = тип состояния
+    // Пример - тут в виде типов будут START, OFFERED....
+    // E = Event = тип события
+    // Пример - в виде типо данных TalkedToNpc ...
+    // Это нужно, чтобы не создавать для каждой системы (квестов, ui и тд) отдельные StateGraph(ы)
+    // Данный граф, можно использовать не только для квестов, но и для Ai мобов, UI, диалогов и тд
 
-    // Метод добавления перехода
+    // Что значит S : Any - означает, что S не может быть nullable (S не может быть QuestState?)
+    // Any - в котлине это "любой не null объект"
+    // private val initial: S - нужно для инициализации начального состояния Графа (то есть точка входа, откуда будет начинать графт QuestState.START)
+){
+    // Карта переходов transitions - из состояния S -> (тип события -> функцию, которая вычисляет новое состояние)
+    private val transitions = mutableMapOf<S, MutableMap<Class<out E>, (E) -> S>>()
+    // MutableMap<Class<out E>, (E) -> S>
+    // Ключ Class<out E> = класс события (например TalkedToNpc::class.java)
+    // (E) -> S "Функция берет событие -> и возвращает новое состояние"
+
+    // on - добавление перехода между состояниями
     fun on(from: S, eventClass: Class<out E>, to: (E) -> S){
-        val byEvent = transitions.getOrPut(from){mutableMapOf()}
-        // getOrPut - если ключа в словаре не находит - положить то, что указали в {...}
+        // from: S - из какого состояния
+        // eventClass: Class<out E> - при каком типе события
+        // to: (E) -> S - условие, как мы получим новое состояние (обычно просто вернуть конкретное значение)
+        val byEvent = transitions.getOrPut(from){ mutableMapOf() }
         byEvent[eventClass] = to
     }
 
