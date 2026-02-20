@@ -426,6 +426,116 @@ class QuestManager(
     }
 }
 
+// ------------ Сохранение квестов в 1 файл ----------------
+
+class SaveSystem(
+    private val bus: EventBus,
+    private val game: GameState,
+    private val questManager: QuestManager,
+    private val quests: List<QuestDefinition>
+){
+    init{
+        bus.subscribe { event ->
+            if (event is PlayerProgressSaved){
+                saveAllForPlayer(event.playerId)
+            }
+        }
+    }
+
+    private fun saveFile(playerId: String) :File{
+        val dir = File("saves")
+        if (!dir.exists()) dir.mkdirs()
+        return File(dir, "${playerId}.save")
+    }
+
+    private fun saveAllForPlayer(playerId: String){
+        val f = saveFile(playerId)
+
+        val sb = StringBuilder()
+        // Легкое создание и изменение изменяемых последовательных символов
+        // В отличии от String - StringBuilder дает возможность добавлять, удалять, вставлять и изменять символы -
+        // Без создания объектов
+
+        sb.append("playerId=").append(playerId).append("\n")
+        sb.append("hp=").append(game.hp.value).append("\n")
+        sb.append("gold=").append(game.gold.value).append("\n")
+
+        for (q in quests){
+            val stateName = questManager.getStateName(playerId, q.questId)
+            sb.append("quest:").append(q.questId).append("=").append(stateName).append("\n")
+            // quest: - префикс для отличия строк с квестами от свойств
+        }
+        f.writeText(sb.toString())
+    }
+    // Почему используем StringGuilder
+    // Когда мы использует обычные строки val text =
+    //  "playerId=$playerId\n" +
+    //  "questId=$questId\n" +
+    //  "state=$stateName\n" +
+    // каждый + создает новую строку (объект)
+    // И если строк много (а их будет много, из-за больших сохранений, файлов конфигурации, файлов логов, файлов настроек)
+    // То генерируются лишние временные строки, появляется лишняя нагрузка на память, тяжелая читаемость когда строк становится 200+
+
+    // Что в данной истории делает StringBuilder (он как коробка, в которую постепенно дописывается текст)
+    // append - добавляет не новую строку(как в списке), а новый кусок текста внутрь общей коробки строк
+    // В конце "билда" делаем toString - преобразует в итоговую ОДНУ финальную строку
+
+    fun loadAllForPlayer(playerId: String){
+        val f = saveFile(playerId)
+        if (!f.exists()) return
+        // Прервать, если файла сохранения нет
+
+        val map = mutableMapOf<String, String>()
+
+        for (line in  f.readLines()){
+            val part = line.split("=")
+            if (part.size == 2){
+                map[part[0]] = part[1]
+            }
+        }
+        val loadedHp = map["hp"]?.toIntOrNull() ?: 100
+        val loadedGold = map["gold"]?.toIntOrNull() ?: 0
+
+        game.hp.value = loadedHp
+        game.gold.value = loadedGold
+
+        // Загрузка квестов
+        for ((key, value) in map){
+            if (key.startsWith("quest:")){
+                // startsWith - проверка, на то, с чем начинается кусок строки
+
+                val questId = key.substringAfter("quest:")
+                // substringAfter - берет часть строки, после quest:
+                // Пример ключ "quest:q_guard" -> substringAfter вернет только q_guard
+
+                questManager.setStateName(playerId, questId, value)
+                // Подгружаем этап квеста, на котором остановился игрок во время сохранения
+            }
+        }
+    }
+}
+
+fun main() = KoolApplication{
+    val game = GameState()
+    val bus = EventBus()
+
+    val alchemistQuest = AlchemistQuest()
+    val guardQuest = GuardQuest()
+
+    val questList = listOf<QuestDefinition>(alchemistQuest, guardQuest)
+    // Создаем список квестов и кладем туда наши квесты
+
+    val questManager = QuestManager(bus, game, questList)
+    val saves = SaveSystem(bus, game, questManager, questList)
+
+    val activeNpcId = mutableStateOf<String?>(null)
+    // если у npc null значит игрок еще не открыл диалог с ним
+}
+
+
+
+
+
 
 
 
