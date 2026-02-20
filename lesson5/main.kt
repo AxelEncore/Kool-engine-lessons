@@ -553,75 +553,26 @@ fun main() = KoolApplication{
                 modifier.margin(bottom = sizes.gap)
 
                 // --------- Кнопки выбора -----------
-                Row {
-                    for (opt in view.options){
-                        Button(opt.text){
+                Row{
+                    for(option in view.options){
+                        Button(option.text){
                             modifier
                                 .margin(end = 8.dp)
-                                .onClick{
+                                .onclick{
                                     val pid = game.playerId.value
 
-                                    // Специальная логика для кнопок
-                                    when(opt.id){
+                                    when(option.id){
                                         "talk" -> {
-                                            bus.publish(TalkedNpc(pid, npc.id))
+                                            bus.publish(TalkedToNpc(pid, npc.id))
                                         }
 
-                                        "collected_herb" -> {
-                                            val (updated, left) = addItem(game.inventory.value, HERB, 1)
-                                            game.inventory.value = updated
-
-                                            bus.publish(ItemCollected(pid, HERB.id, 1))
-
-                                            if (left > 0) game.gold.value += left
-                                        }
-
-                                        "give_herb" -> {
-                                            val (updated, succes) = removeItem(game.inventory.value, HERB.id, 1)
-                                            game.inventory.value = updated
-
-                                            if (succes){
-                                                bus.publish(ItemGivenToNpc(pid, npc.id, HERB.id, 1))
-
-                                                // Награда за хорошую концовку
-                                                val (inv2, left) = addItem(game.inventory.value, HEAL_POTION, 6)
-                                                game.inventory.value = inv2
-                                                if (left > 0) game.gold.value += left
-                                            }else{
-                                                pushLog(game, "[$pid] Нет травы, чтобы отдать")
-                                            }
-                                        }
-
-                                        "threat" -> {
-                                            bus.publish(ChoiceSelected(pid, npc.id, "threat"))
-                                        }
-                                        "help" -> {
-                                            bus.publish(ChoiceSelected(pid, npc.id, "help"))
-                                        }
-
-                                        "threaten_confirm" -> {
-                                            bus.publish(ChoiceSelected(pid, npc.id, "threaten_confirm"))
-
-                                            game.gold.value += 10
-                                        }
-
-                                        else -> {
-                                            bus.publish(ChoiceSelected(pid, npc.id, opt.id))
+                                        "collect_herb" -> {
+                                            val (updated, left) = addItem(game.inventory.value)
                                         }
                                     }
                                 }
                         }
                     }
-                }
-                // --------- ПРОСТАЯ ВИЗУАЛИЗАЦИЯ ИНВЕНТАРЯ -----------
-                Text("Инвентарь"){}
-                modifier.margin(bottom = sizes.gap)
-
-                val inv = game.inventory.use()
-                for (i in inv.indices){
-                    val s = inv[i]
-                    val text = if (s == null) "[${i + 1}] (пуст)" else "[${i + 1}] ${s.item.name} x${s.count}"
-                    Text(text) {modifier.font(sizes.smallText)}
                 }
             }
         }
