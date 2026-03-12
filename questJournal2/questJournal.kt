@@ -444,7 +444,10 @@ fun main() = KoolApplication {
                             }
                         }
                     }
-
+                }
+                Text("Log:") { modifier.margin(top = sizes.gap) }
+                for (line in hud.log.use()) {
+                    Text(line) { modifier.font(sizes.smallText) }
                 }
             }
         }
